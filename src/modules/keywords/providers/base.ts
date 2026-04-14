@@ -41,10 +41,10 @@ export function ok<T>(data: T): ToolResponse<T> {
   return { success: true, data };
 }
 
-export function fail(
+export function fail<T = unknown>(
   code: string,
   message: string,
   fix: string
-): ToolResponse {
+): ToolResponse<T> {
   return { success: false, error: { code, message, fix } };
 }

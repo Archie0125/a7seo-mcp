@@ -17,7 +17,7 @@ export async function clusterKeywords(
   db: Database.Database
 ): Promise<ToolResponse<KeywordCluster[]>> {
   if (keywords.length === 0) {
-    return fail('EMPTY_INPUT', 'No keywords provided', 'Provide at least one keyword to cluster') as ToolResponse<KeywordCluster[]>;
+    return fail<KeywordCluster[]>('EMPTY_INPUT', 'No keywords provided', 'Provide at least one keyword to cluster');
   }
 
   // Simple clustering by shared terms (no LLM needed for basic version)
