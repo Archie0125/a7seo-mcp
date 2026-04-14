@@ -2,6 +2,9 @@
 import { loadConfig, detectProviders } from './config.js';
 import { getDb, closeDb } from './db/client.js';
 import { discoverKeywords } from './modules/keywords/discovery.js';
+import { generateConfig } from './init.js';
+import { resolve } from 'path';
+import { createInterface } from 'readline';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -97,6 +100,66 @@ async function runDiscover(keywords: string) {
   closeDb();
 }
 
+function ask(rl: ReturnType<typeof createInterface>, question: string, defaultVal?: string): Promise<string> {
+  const prompt = defaultVal ? `${question} [${defaultVal}]: ` : `${question}: `;
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      resolve(answer.trim() || defaultVal || '');
+    });
+  });
+}
+
+async function runInit() {
+  const outputPath = resolve(process.cwd(), 'seo-engine.config.json');
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  console.log('\na7seo init — Project setup\n');
+
+  const projectId = await ask(rl, 'Project ID', 'my-project');
+  const domain = await ask(rl, 'Domain', 'example.com');
+  const language = await ask(rl, 'Language', 'zh-TW');
+  const region = await ask(rl, 'Region', 'TW');
+
+  console.log('\nPublisher adapters:');
+  console.log('  1) markdown-files — Write .md files (Astro, Next.js, Hugo)');
+  console.log('  2) blogposts-ts  — Insert into data/blogPosts.ts (React SPA)');
+  console.log('  3) wordpress     — WordPress REST API');
+  const adapterChoice = await ask(rl, 'Choose publisher (1/2/3)', '1');
+
+  const adapterMap: Record<string, 'markdown-files' | 'blogposts-ts' | 'wordpress'> = {
+    '1': 'markdown-files',
+    '2': 'blogposts-ts',
+    '3': 'wordpress',
+    'markdown-files': 'markdown-files',
+    'blogposts-ts': 'blogposts-ts',
+    'wordpress': 'wordpress',
+  };
+  const publisherAdapter = adapterMap[adapterChoice] || 'markdown-files';
+
+  rl.close();
+
+  const created = generateConfig({
+    projectId,
+    domain,
+    language,
+    region,
+    publisherAdapter,
+    outputPath,
+  });
+
+  if (created) {
+    console.log(`\nConfig written to: ${outputPath}`);
+    console.log('\nNext steps:');
+    console.log('  1. Set ANTHROPIC_API_KEY env var (for content generation)');
+    console.log('  2. Optional: Set GOOGLE_ADS_* or DATAFORSEO_* env vars');
+    console.log('  3. Add a7seo to .claude/mcp.json (see README)');
+    console.log('  4. Run: a7seo doctor');
+  } else {
+    console.log(`\nConfig already exists at ${outputPath}. Use --force to overwrite.`);
+  }
+}
+
 async function main() {
   if (!command || command === '--help' || command === '-h') {
     printHelp();
@@ -115,8 +178,7 @@ async function main() {
       await runDiscover(args[1]);
       break;
     case 'init':
-      console.log('TODO: Interactive init wizard coming in v0.2');
-      console.log('For now, copy seo-engine.config.example.json to seo-engine.config.json and edit it.');
+      await runInit();
       break;
     default:
       console.error(`Unknown command: ${command}`);

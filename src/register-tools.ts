@@ -6,6 +6,7 @@ import { discoverKeywords, getKeywordTrends } from './modules/keywords/discovery
 import { clusterKeywords } from './modules/keywords/clustering.js';
 import { generateBrief, generateArticle, optimizeContent } from './modules/content/generator.js';
 import { createMarkdownAdapter } from './modules/publisher/adapters/markdown-files.js';
+import { createBlogPostsTsAdapter } from './modules/publisher/adapters/blogposts-ts.js';
 import { ok, fail } from './modules/keywords/providers/base.js';
 
 export function registerAllTools(
@@ -310,9 +311,14 @@ function registerPublisherTools(
       }
 
       // Create adapter based on config
-      const adapter = createMarkdownAdapter({
-        outputDir: config.publisher.config.outputDir || './content',
-      });
+      const adapter = config.publisher.adapter === 'blogposts-ts'
+        ? createBlogPostsTsAdapter({
+            blogPostsPath: config.publisher.config.blogPostsPath || './data/blogPosts.ts',
+            imagesDir: config.publisher.config.imagesDir || './public/images',
+          })
+        : createMarkdownAdapter({
+            outputDir: config.publisher.config.outputDir || './content',
+          });
 
       const result = await adapter.publish({
         title: article.title as string,
