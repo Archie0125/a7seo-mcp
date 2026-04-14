@@ -3,6 +3,7 @@ import { loadConfig, detectProviders } from './config.js';
 import { getDb, closeDb } from './db/client.js';
 import { discoverKeywords } from './modules/keywords/discovery.js';
 import { generateConfig } from './init.js';
+import { startServer } from './agent/server.js';
 import { resolve } from 'path';
 import { createInterface } from 'readline';
 
@@ -17,14 +18,17 @@ Usage:
   a7seo init                        Interactive project setup
   a7seo doctor                      Check dependencies and configuration
   a7seo discover <keywords>         Discover keyword opportunities
-  a7seo trends <keywords>           Get Google Trends data
+  a7seo serve                       Start HTTP agent server
+  a7seo serve --port 8080           Start on custom port
 
 Options:
   --project <id>                    Project ID (default: from config)
+  --port <number>                   Agent server port (default: 4000)
   --help                            Show this help
 
 Examples:
   a7seo discover "SEO優化,關鍵字研究"
+  a7seo serve
   a7seo doctor
   a7seo init
 `);
@@ -180,6 +184,12 @@ async function main() {
     case 'init':
       await runInit();
       break;
+    case 'serve': {
+      const portIdx = args.indexOf('--port');
+      const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : undefined;
+      startServer(port);
+      break;
+    }
     default:
       console.error(`Unknown command: ${command}`);
       printHelp();
