@@ -1,0 +1,394 @@
+osop: "1.0"
+metadata:
+  name: A7SEO 完整 SEO 流程
+  description: |
+    從關鍵字研究到文章發布的完整自動化流程。
+    三個工具協作：a7seo-mcp + mcp-gsc + claude-seo skill。
+  author: Archie0125
+  version: "1.0.0"
+  tags: [seo, keyword, content, publish, automation]
+
+# ════════════════════════════════════════════════════
+# 流程圖（Mermaid）
+# ════════════════════════════════════════════════════
+#
+#   ┌─────────────────────────────────────────────┐
+#   │            Phase 1: 關鍵字研究              │
+#   │                                             │
+#   │  [GSC] 查現有排名 ──→ 找出機會字            │
+#   │  [a7seo] discover ──→ Google Trends 趨勢    │
+#   │  [a7seo] cluster  ──→ 關鍵字分群            │
+#   │  [a7seo] gaps     ──→ 找未覆蓋的字          │
+#   └──────────────┬──────────────────────────────┘
+#                  │
+#   ┌──────────────▼──────────────────────────────┐
+#   │            Phase 2: 內容生成                │
+#   │                                             │
+#   │  [a7seo] content_brief    ──→ 文章大綱      │
+#   │  [a7seo] content_generate ──→ semantic HTML  │
+#   │  [claude-seo] /seo        ──→ E-E-A-T 檢查  │
+#   └──────────────┬──────────────────────────────┘
+#                  │
+#   ┌──────────────▼──────────────────────────────┐
+#   │            Phase 3: 發布                    │
+#   │                                             │
+#   │  [a7seo] publish_draft ──→ 存草稿           │
+#   │  [a7seo] publish_push  ──→ 發布到站點       │
+#   │  [a7seo] publish_list  ──→ 確認發布成功     │
+#   └──────────────┬──────────────────────────────┘
+#                  │
+#   ┌──────────────▼──────────────────────────────┐
+#   │            Phase 4: 監控 & 優化             │
+#   │                                             │
+#   │  [GSC] 查新文章排名 ──→ 追蹤成效            │
+#   │  [claude-seo] /seo   ──→ 技術 SEO 審核     │
+#   │  [a7seo] content_optimize ──→ 優化舊文      │
+#   └─────────────────────────────────────────────┘
+
+nodes:
+
+  # ──── Phase 1: 關鍵字研究 ────────────────────
+
+  - id: start
+    type: human
+    label: "決定目標市場/主題"
+    description: |
+      你先決定要為哪個網站、哪個主題做 SEO。
+      例如：topclass.tw 的「SEO 教學」主題
+    outputs: [target_domain, target_topic]
+
+  - id: gsc_check
+    type: mcp
+    subtype: gsc
+    label: "查看現有搜尋表現"
+    description: |
+      【工具】mcp-gsc（Google Search Console）
+      【前提】需要 gsc-service-account.json
+
+      在 Claude Code 中說：
+        「查看 topclass.tw 最近 30 天的搜尋表現」
+        「哪些關鍵字排名在 11-20 名？」（即將進首頁的機會字）
+        「哪些頁面的 CTR 最低？」（需要優化的頁面）
+
+      Claude 會呼叫 GSC MCP 的 tools，回傳真實數據：
+      - 點擊數、曝光數、CTR、平均排名
+      - 按關鍵字分類的表現
+      - 按頁面分類的表現
+    security:
+      risk_level: low
+      permissions: [google_search_console_read]
+    outputs: [existing_keywords, opportunity_keywords, low_ctr_pages]
+
+  - id: keyword_discover
+    type: mcp
+    subtype: a7seo
+    label: "發現新關鍵字"
+    description: |
+      【工具】a7seo-mcp → seo_keywords_discover
+      【前提】pytrends 已安裝（不需要 API key）
+
+      在 Claude Code 中說：
+        「幫我找 SEO優化 和 AI行銷 的關鍵字」
+
+      或 CLI：
+        node C:\Users\A7\Desktop\a7seo-mcp\dist\cli.js discover "SEO優化,AI行銷"
+
+      回傳：每個關鍵字的趨勢（上升/穩定/下降）、相對熱度、相關搜尋字
+
+      ⚠️ 注意：pytrends 有限流，連續查太多次會被 Google 擋。
+      查完的結果會自動存 SQLite cache（24hr 有效）。
+    security:
+      risk_level: low
+    outputs: [discovered_keywords]
+
+  - id: keyword_cluster
+    type: mcp
+    subtype: a7seo
+    label: "關鍵字分群"
+    description: |
+      【工具】a7seo-mcp → seo_keywords_cluster
+
+      在 Claude Code 中說：
+        「把這些關鍵字分群：SEO優化, SEO工具, SEO教學, 關鍵字研究, 關鍵字工具, 網站優化」
+
+      回傳：按主題分群的結果，例如：
+      - Cluster 1: SEO優化, SEO工具, SEO教學（SEO 相關）
+      - Cluster 2: 關鍵字研究, 關鍵字工具（關鍵字相關）
+    security:
+      risk_level: low
+    outputs: [keyword_clusters]
+
+  - id: keyword_gaps
+    type: mcp
+    subtype: a7seo
+    label: "找出未覆蓋關鍵字"
+    description: |
+      【工具】a7seo-mcp → seo_keywords_gaps
+
+      在 Claude Code 中說：
+        「有哪些關鍵字還沒寫文章？」
+
+      會比對 SQLite 中的 keywords 和 articles 表，
+      列出有趨勢數據但還沒有對應文章的關鍵字。
+    security:
+      risk_level: low
+    outputs: [uncovered_keywords]
+
+  # ──── Phase 2: 內容生成 ──────────────────────
+
+  - id: content_brief
+    type: mcp
+    subtype: a7seo
+    label: "生成文章大綱"
+    description: |
+      【工具】a7seo-mcp → seo_content_brief
+      【前提】需要 ANTHROPIC_API_KEY ⚡
+
+      在 Claude Code 中說：
+        「用 台北SEO 這個關鍵字生成文章大綱」
+
+      回傳 JSON：
+      - title: SEO 優化的標題
+      - headings: H2/H3 結構
+      - targetWordCount: 建議字數
+      - faqQuestions: FAQ 問題
+      - relatedKeywords: 要融入的相關字
+      - intent: 搜尋意圖
+    security:
+      risk_level: low
+      secrets: [ANTHROPIC_API_KEY]
+    outputs: [content_brief]
+
+  - id: content_generate
+    type: mcp
+    subtype: a7seo
+    label: "生成完整文章"
+    description: |
+      【工具】a7seo-mcp → seo_content_generate
+      【前提】需要 ANTHROPIC_API_KEY ⚡
+
+      在 Claude Code 中說：
+        「用 台北SEO 這個關鍵字寫一篇完整文章」
+
+      回傳：
+      - html: 純 semantic HTML（無 class/div/span）
+      - jsonLd: 獨立的 JSON-LD schema
+      - title, slug, metaDescription, wordCount
+
+      文章自動存為 draft 到 SQLite。
+
+      ⚠️ 生成需要 30-120 秒（Claude API 呼叫）
+    security:
+      risk_level: medium
+      secrets: [ANTHROPIC_API_KEY]
+    outputs: [generated_article]
+
+  - id: eeat_check
+    type: agent
+    subtype: claude-seo
+    label: "E-E-A-T 品質檢查"
+    description: |
+      【工具】claude-seo skill（全域已安裝）
+      【前提】不需要額外 API key
+
+      在 Claude Code 中說：
+        「用 /claude-seo 幫我檢查這篇文章的 E-E-A-T」
+
+      或直接把文章內容貼給 Claude 問：
+        「這篇文章的 SEO 品質如何？有什麼需要改進的？」
+
+      claude-seo 有 19 個子技能，包括：
+      - 技術 SEO 審核
+      - E-E-A-T 評估
+      - Schema markup 建議
+      - 內容品質分析
+    security:
+      risk_level: low
+    outputs: [quality_report]
+
+  # ──── Phase 3: 發布 ──────────────────────────
+
+  - id: publish_draft
+    type: mcp
+    subtype: a7seo
+    label: "儲存草稿"
+    description: |
+      【工具】a7seo-mcp → seo_publish_draft
+
+      通常 content_generate 已自動存 draft。
+      如果你要手動存一篇：
+        「把這篇文章存為草稿」（提供 title, slug, html）
+    security:
+      risk_level: low
+    outputs: [draft_saved]
+
+  - id: publish_push
+    type: mcp
+    subtype: a7seo
+    label: "發布文章"
+    description: |
+      【工具】a7seo-mcp → seo_publish_push
+
+      在 Claude Code 中說：
+        「發布 slug 為 xxx 的文章」
+
+      根據 seo-engine.config.json 的 publisher 設定：
+      - markdown-files → 產出 .md 檔到 content/ 目錄
+      - blogposts-ts → 注入到 data/blogPosts.ts（TOPCLASS 用）
+
+      發布後 SQLite 狀態更新為 published。
+    security:
+      risk_level: medium
+      permissions: [file_write]
+    outputs: [published_url]
+
+  - id: publish_verify
+    type: mcp
+    subtype: a7seo
+    label: "確認發布狀態"
+    description: |
+      【工具】a7seo-mcp → seo_publish_list
+
+      在 Claude Code 中說：
+        「列出所有已發布的文章」
+        「列出所有草稿」
+
+      可以用 status 篩選：draft, published, needs_update
+    security:
+      risk_level: low
+    outputs: [article_list]
+
+  # ──── Phase 4: 監控 & 優化 ──────────────────
+
+  - id: monitor_ranking
+    type: mcp
+    subtype: gsc
+    label: "追蹤新文章排名"
+    description: |
+      【工具】mcp-gsc
+      【時機】發布後 1-4 週
+
+      在 Claude Code 中說：
+        「topclass.tw 最近新文章的搜尋表現如何？」
+        「台北SEO 這個關鍵字排名多少？」
+
+      GSC 數據有 2-3 天延遲，新文章需要等 Google 索引。
+    security:
+      risk_level: low
+      permissions: [google_search_console_read]
+    outputs: [ranking_data]
+
+  - id: optimize_content
+    type: mcp
+    subtype: a7seo
+    label: "優化表現不佳的文章"
+    description: |
+      【工具】a7seo-mcp → seo_content_optimize
+      【前提】需要 ANTHROPIC_API_KEY ⚡
+
+      在 Claude Code 中說：
+        「這篇文章排名掉了，幫我優化」（貼上 HTML）
+
+      或結合 GSC 數據：
+        「找出 CTR 最低的 3 篇文章，幫我優化標題和內容」
+
+      回傳：
+      - suggestions: 優化建議列表
+      - rewrittenHtml: 重寫版本（如果需要大幅修改）
+    security:
+      risk_level: medium
+      secrets: [ANTHROPIC_API_KEY]
+    outputs: [optimized_content]
+
+  - id: technical_audit
+    type: agent
+    subtype: claude-seo
+    label: "技術 SEO 審核"
+    description: |
+      【工具】claude-seo skill
+      【時機】每月一次或排名明顯下降時
+
+      在 Claude Code 中用 claude-seo 的技能：
+        「幫我做一次完整的技術 SEO 審核」
+
+      檢查項目：
+      - 頁面速度、Core Web Vitals
+      - Schema markup 是否正確
+      - 內部連結結構
+      - Meta tags 完整性
+      - 行動裝置相容性
+    security:
+      risk_level: low
+    outputs: [audit_report]
+
+edges:
+  - from: start
+    to: gsc_check
+    mode: sequential
+    label: "先看現狀"
+
+  - from: start
+    to: keyword_discover
+    mode: parallel
+    label: "同時找新字"
+
+  - from: gsc_check
+    to: keyword_cluster
+    mode: sequential
+    label: "合併 GSC + Trends 數據"
+
+  - from: keyword_discover
+    to: keyword_cluster
+    mode: sequential
+
+  - from: keyword_cluster
+    to: keyword_gaps
+    mode: sequential
+    label: "找出缺口"
+
+  - from: keyword_gaps
+    to: content_brief
+    mode: sequential
+    label: "選最有潛力的字"
+    condition: "uncovered_keywords.length > 0"
+
+  - from: content_brief
+    to: content_generate
+    mode: sequential
+
+  - from: content_generate
+    to: eeat_check
+    mode: sequential
+    label: "品質關卡"
+
+  - from: eeat_check
+    to: publish_push
+    mode: conditional
+    condition: "quality_score >= 7"
+    label: "品質 OK 才發布"
+
+  - from: eeat_check
+    to: content_generate
+    mode: conditional
+    condition: "quality_score < 7"
+    label: "品質不夠，重寫"
+
+  - from: publish_push
+    to: publish_verify
+    mode: sequential
+
+  - from: publish_verify
+    to: monitor_ranking
+    mode: event
+    label: "等 1-4 週"
+
+  - from: monitor_ranking
+    to: optimize_content
+    mode: conditional
+    condition: "ranking > 20 or ctr < 2%"
+    label: "排名差或 CTR 低"
+
+  - from: monitor_ranking
+    to: technical_audit
+    mode: conditional
+    condition: "每月定期"
