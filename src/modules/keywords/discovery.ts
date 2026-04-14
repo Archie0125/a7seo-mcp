@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { ProjectConfig } from '../../config.js';
 import type { KeywordResult, KeywordProvider } from './providers/base.js';
 import { googleTrendsProvider } from './providers/google-trends.js';
+import { googlePlannerProvider, setGoogleAdsConfig } from './providers/google-planner.js';
 
 export interface DiscoveryResult {
   keywords: KeywordResult[];
@@ -37,8 +38,25 @@ export async function discoverKeywords(
   }
 
   // Step 2: Google Keyword Planner (free, needs credentials)
-  // TODO: Implement in Phase 2
-  // if (config.googleAds?.developerToken) { ... }
+  if (config.googleAds?.developerToken) {
+    setGoogleAdsConfig({
+      clientId: config.googleAds.clientId,
+      clientSecret: config.googleAds.clientSecret,
+      developerToken: config.googleAds.developerToken,
+      refreshToken: config.googleAds.refreshToken,
+      customerId: config.googleAds.customerId,
+    });
+
+    if (await googlePlannerProvider.isAvailable()) {
+      try {
+        const plannerData = await googlePlannerProvider.discover(seeds, options);
+        results = mergeResults(results, plannerData);
+        providersUsed.push('google-planner');
+      } catch (err) {
+        console.error('Google Keyword Planner failed:', (err as Error).message);
+      }
+    }
+  }
 
   // Step 3: DataForSEO verification (paid, optional)
   // TODO: Implement when DataForSEO provider is added
@@ -78,6 +96,50 @@ export async function getKeywordTrends(
   }
 
   return googleTrendsProvider.discover(keywords, options);
+}
+
+/**
+ * Merge results from multiple providers. Planner data enriches Trends data
+ * with volume/difficulty/CPC. If a keyword only exists in one source, keep it.
+ */
+function mergeResults(
+  existing: KeywordResult[],
+  incoming: KeywordResult[]
+): KeywordResult[] {
+  const map = new Map<string, KeywordResult>();
+
+  // Start with existing (e.g., Trends data with trend/interest)
+  for (const kw of existing) {
+    map.set(kw.keyword.toLowerCase(), { ...kw });
+  }
+
+  // Merge incoming (e.g., Planner data with volume/difficulty/CPC)
+  for (const kw of incoming) {
+    const key = kw.keyword.toLowerCase();
+    const existing = map.get(key);
+
+    if (existing) {
+      // Enrich: prefer non-null values from incoming
+      if (kw.volume !== null) {
+        existing.volume = kw.volume;
+        existing.volumeSource = kw.volumeSource;
+        existing.volumeConfidence = kw.volumeConfidence;
+      }
+      if (kw.difficulty !== null) existing.difficulty = kw.difficulty;
+      if (kw.cpc !== null) existing.cpc = kw.cpc;
+      if (kw.intent !== null) existing.intent = kw.intent;
+      if (kw.relatedQueries.length > 0) {
+        // Merge and deduplicate related queries
+        const allRelated = new Set([...existing.relatedQueries, ...kw.relatedQueries]);
+        existing.relatedQueries = [...allRelated];
+      }
+    } else {
+      // New keyword from Planner, add it
+      map.set(key, { ...kw });
+    }
+  }
+
+  return [...map.values()];
 }
 
 function upsertKeywords(
