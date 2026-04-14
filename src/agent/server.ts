@@ -19,9 +19,18 @@
  */
 
 import express from 'express';
-import { spawn, spawnSync, execFile } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { randomUUID } from 'crypto';
-import { openSync } from 'fs';
+import { findClaudePath } from './claude-finder.js';
+import {
+  getDefaultPipelines,
+  runPipeline,
+  getAllPipelineStatus,
+  getReports,
+  getReportContent,
+} from './pipeline.js';
+import { startScheduler, stopScheduler, getScheduledJobs } from './scheduler.js';
+import { resolve } from 'path';
 
 const app = express();
 app.use(express.json());
@@ -59,43 +68,7 @@ function addHistory(record: TaskRecord) {
 
 // ── Claude CLI detection ───────────────────────────────────
 
-function findClaude(): string | null {
-  // Try direct exe paths first (avoids shell: true issues on Windows)
-  if (process.platform === 'win32') {
-    const home = (process.env.USERPROFILE || '').replace(/\\/g, '/');
-    const candidates = [
-      `${home}/.local/bin/claude.exe`,
-      `${(process.env.LOCALAPPDATA || '').replace(/\\/g, '/')}/Programs/claude/claude.exe`,
-    ];
-    for (const cmd of candidates) {
-      try {
-        const result = spawnSync(cmd, ['--version'], {
-          encoding: 'utf-8',
-          timeout: 5000,
-        });
-        if (result.status === 0) return cmd;
-      } catch {
-        // continue
-      }
-    }
-  }
-
-  // Fallback: bare 'claude' with shell
-  try {
-    const result = spawnSync('claude', ['--version'], {
-      encoding: 'utf-8',
-      timeout: 5000,
-      shell: true,
-    });
-    if (result.status === 0) return 'claude';
-  } catch {
-    // not found
-  }
-
-  return null;
-}
-
-const claudeCmd = findClaude();
+const claudeCmd = findClaudePath();
 
 // ── Routes ─────────────────────────────────────────────────
 
@@ -333,6 +306,59 @@ function runClaude(options: RunOptions): Promise<string> {
   });
 }
 
+// ── Pipeline & Reports Routes ─────────────────────────────
+
+let currentPipelines: ReturnType<typeof getDefaultPipelines> = [];
+let reportsDir = '';
+
+app.get('/pipeline/status', (_req, res) => {
+  res.json({
+    pipelines: currentPipelines.map(p => ({
+      id: p.id,
+      name: p.name,
+      schedule: p.schedule,
+      enabled: p.enabled,
+      requiresApproval: p.requiresApproval,
+      lastRun: getAllPipelineStatus()[p.id] || null,
+    })),
+    scheduledJobs: getScheduledJobs(),
+  });
+});
+
+app.post('/pipeline/run', async (req, res) => {
+  const { pipeline: pipelineId } = req.body as { pipeline: string };
+  const pipeline = currentPipelines.find(p => p.id === pipelineId);
+
+  if (!pipeline) {
+    res.status(404).json({
+      error: `Pipeline "${pipelineId}" not found`,
+      available: currentPipelines.map(p => p.id),
+    });
+    return;
+  }
+
+  try {
+    const run = await runPipeline(pipeline, reportsDir);
+    res.json(run);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.get('/reports', (_req, res) => {
+  const files = getReports(reportsDir);
+  res.json({ reports: files });
+});
+
+app.get('/reports/:filename', (req, res) => {
+  const content = getReportContent(reportsDir, req.params.filename);
+  if (!content) {
+    res.status(404).json({ error: 'Report not found' });
+    return;
+  }
+  res.type('text/markdown').send(content);
+});
+
 // ── Start ──────────────────────────────────────────────────
 
 export function startServer(port?: number) {
@@ -345,13 +371,61 @@ export function startServer(port?: number) {
 ╠══════════════════════════════════════════╣
 ║  http://localhost:${String(p).padEnd(25)}║
 ║                                          ║
-║  POST /task        → Run task (sync)     ║
-║  POST /task/stream → Run task (SSE)      ║
-║  GET  /health      → Health check        ║
-║  GET  /history     → Recent tasks        ║
+║  POST /task           → Run task (sync)  ║
+║  POST /task/stream    → Run task (SSE)   ║
+║  GET  /health         → Health check     ║
+║  GET  /history        → Recent tasks     ║
+║  GET  /pipeline/status→ Pipeline status  ║
+║  POST /pipeline/run   → Trigger pipeline ║
+║  GET  /reports        → View reports     ║
 ║                                          ║
 ║  Claude CLI: ${(claudeCmd ? 'OK' : 'NOT FOUND').padEnd(27)}║
 ╚══════════════════════════════════════════╝
 `);
+  });
+}
+
+export function startAutopilot(options: {
+  port?: number;
+  domain: string;
+  cwd: string;
+  reportsPath: string;
+}) {
+  const p = options.port || parseInt(process.env.PORT || '4000', 10);
+  reportsDir = resolve(options.reportsPath);
+  currentPipelines = getDefaultPipelines(options.domain, options.cwd);
+
+  // Start scheduler
+  startScheduler(currentPipelines, reportsDir);
+
+  app.listen(p, () => {
+    console.log(`
+╔══════════════════════════════════════════╗
+║       A7SEO Autopilot v0.1               ║
+╠══════════════════════════════════════════╣
+║  http://localhost:${String(p).padEnd(25)}║
+║  Domain: ${options.domain.padEnd(33)}║
+║                                          ║
+║  Pipelines:                              ║
+${currentPipelines.map(p => `║    ${p.enabled ? '✓' : '✗'} ${(p.name + ' (' + p.schedule + ')').padEnd(36)}║`).join('\n')}
+║                                          ║
+║  POST /task           → Ad-hoc task      ║
+║  GET  /pipeline/status→ Pipeline status  ║
+║  POST /pipeline/run   → Trigger pipeline ║
+║  GET  /reports        → View reports     ║
+║                                          ║
+║  Claude CLI: ${(claudeCmd ? 'OK' : 'NOT FOUND').padEnd(27)}║
+╚══════════════════════════════════════════╝
+`);
+  });
+
+  // Graceful shutdown
+  process.on('SIGINT', () => {
+    stopScheduler();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    stopScheduler();
+    process.exit(0);
   });
 }

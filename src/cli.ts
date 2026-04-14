@@ -3,7 +3,7 @@ import { loadConfig, detectProviders } from './config.js';
 import { getDb, closeDb } from './db/client.js';
 import { discoverKeywords } from './modules/keywords/discovery.js';
 import { generateConfig } from './init.js';
-import { startServer } from './agent/server.js';
+import { startServer, startAutopilot } from './agent/server.js';
 import { resolve } from 'path';
 import { createInterface } from 'readline';
 
@@ -188,6 +188,18 @@ async function main() {
       const portIdx = args.indexOf('--port');
       const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : undefined;
       startServer(port);
+      break;
+    }
+    case 'autopilot': {
+      const config = loadConfig();
+      const apPortIdx = args.indexOf('--port');
+      const apPort = apPortIdx !== -1 ? parseInt(args[apPortIdx + 1], 10) : undefined;
+      startAutopilot({
+        port: apPort,
+        domain: config.domain,
+        cwd: process.cwd(),
+        reportsPath: resolve(process.cwd(), 'data', 'reports'),
+      });
       break;
     }
     default:
