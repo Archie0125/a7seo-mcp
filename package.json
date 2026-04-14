@@ -1,0 +1,47 @@
+{
+  "name": "a7seo-mcp",
+  "version": "0.1.0",
+  "description": "Automated SEO traffic engine as MCP server for Claude Code — keyword research, content generation, and publishing",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "a7seo": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "keywords": [
+    "mcp",
+    "seo",
+    "keyword-research",
+    "content-generation",
+    "claude-code",
+    "google-trends",
+    "semantic-html"
+  ],
+  "author": "Archie0125",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Archie0125/a7seo-mcp.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^17.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.8.0"
+  }
+}

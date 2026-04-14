@@ -1,0 +1,29 @@
+{
+  "projectId": "my-project",
+  "domain": "example.com",
+  "language": "zh-TW",
+  "region": "TW",
+  "dbPath": "./data/seo-engine.db",
+
+  "publisher": {
+    "adapter": "markdown-files",
+    "config": {
+      "outputDir": "./content"
+    }
+  },
+
+  "_comment_googleAds": "Optional: Google Ads API for Keyword Planner. Or set env vars: GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_DEVELOPER_TOKEN, etc.",
+  "googleAds": {
+    "clientId": "",
+    "clientSecret": "",
+    "developerToken": "",
+    "refreshToken": "",
+    "customerId": ""
+  },
+
+  "_comment_dataforseo": "Optional: DataForSEO for verified keyword data. Or set env vars: DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD",
+  "dataforseo": {
+    "login": "",
+    "password": ""
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+seo-engine.config.json
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+Thumbs.db
