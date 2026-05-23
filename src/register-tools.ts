@@ -9,6 +9,7 @@ import { createMarkdownAdapter } from './modules/publisher/adapters/markdown-fil
 import { createBlogPostsTsAdapter } from './modules/publisher/adapters/blogposts-ts.js';
 import { ok, fail } from './modules/keywords/providers/base.js';
 import { createBingWmtProvider } from './modules/platforms/bing-wmt.js';
+import { runSeoHealthCheck } from './modules/platforms/health-check.js';
 
 export function registerAllTools(
   server: McpServer,
@@ -25,6 +26,46 @@ function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
   // Bing Webmaster Tools — no first-party MCP server exists, so a7seo-mcp
   // ships one. GA4/GSC/Clarity continue to be served by their dedicated
   // MCP packages registered in the consuming project's .mcp.json.
+  // Cross-stack SEO + GEO health check — no platform credentials required.
+  // Runs entirely over plain HTTP against the configured site URL.
+  server.tool(
+    'seo_health_check',
+    'Cross-stack SEO + GEO health check for the current project. Probes sitemap.xml, robots.txt (AI crawler allow rules), llms.txt presence, tracking pixel render (GA4/Clarity/Meta), canonical link, og:image, and <html lang> attribute. Returns green/yellow/red findings. No platform credentials required — works against any site URL.',
+    {
+      siteUrl: z
+        .string()
+        .optional()
+        .describe('Site URL to probe. Defaults to https://<config.domain>/ if omitted.'),
+    },
+    async ({ siteUrl }) => {
+      const target =
+        siteUrl ||
+        (config.domain
+          ? `https://${config.domain.replace(/^https?:\/\//, '').replace(/\/$/, '')}/`
+          : '');
+      if (!target) {
+        const res = fail(
+          'NO_SITE_URL',
+          'No siteUrl provided and config.domain is empty',
+          'Pass siteUrl explicitly, or set domain in seo-engine.config.json'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+      try {
+        const report = await runSeoHealthCheck(target);
+        const res = ok(report);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'HEALTH_CHECK_FAILED',
+          (err as Error).message,
+          'Verify the site URL is reachable from this machine and returns 2xx.'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
+
   server.tool(
     'bing_wmt_fetch',
     'Fetch Bing Webmaster Tools metrics (pages crawled, crawl errors, impressions, clicks, avg position, top queries, top pages) for the current project. Requires platforms.bingWmt.apiKey and platforms.bingWmt.siteUrl in seo-engine.config.json or BING_WMT_API_KEY + BING_WMT_SITE_URL env vars.',
