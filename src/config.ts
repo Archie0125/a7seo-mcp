@@ -19,6 +19,15 @@ export interface DataForSEOConfig {
   password: string;
 }
 
+export interface BingWmtConfig {
+  siteUrl: string;
+  apiKey: string;
+}
+
+export interface PlatformsConfig {
+  bingWmt?: BingWmtConfig;
+}
+
 export interface ProjectConfig {
   projectId: string;
   domain: string;
@@ -29,6 +38,7 @@ export interface ProjectConfig {
   googleAds?: GoogleAdsConfig;
   dataforseo?: DataForSEOConfig;
   anthropicApiKey?: string;
+  platforms?: PlatformsConfig;
 }
 
 export function loadConfig(): ProjectConfig {
@@ -95,6 +105,22 @@ export function loadConfig(): ProjectConfig {
     config.dataforseo = { login: dfsLogin, password: dfsPassword };
   }
 
+  // Platforms — Bing Webmaster Tools (no first-party MCP server exists, so
+  // we host the provider here). GA4/GSC/Clarity continue to use their own
+  // dedicated MCP servers via the consumer project's .mcp.json.
+  const bingApiKey =
+    process.env.BING_WMT_API_KEY || fileConfig.platforms?.bingWmt?.apiKey;
+  const bingSiteUrl =
+    process.env.BING_WMT_SITE_URL ||
+    fileConfig.platforms?.bingWmt?.siteUrl ||
+    (config.domain ? `https://${config.domain}/` : '');
+  if (bingApiKey && bingSiteUrl) {
+    config.platforms = {
+      ...config.platforms,
+      bingWmt: { apiKey: bingApiKey, siteUrl: bingSiteUrl },
+    };
+  }
+
   return config;
 }
 
@@ -102,5 +128,6 @@ export function detectProviders(config: ProjectConfig): string[] {
   const providers: string[] = ['google-trends']; // Always available (if Python exists)
   if (config.googleAds?.developerToken) providers.push('google-planner');
   if (config.dataforseo?.login) providers.push('dataforseo');
+  if (config.platforms?.bingWmt?.apiKey) providers.push('bing-wmt');
   return providers;
 }

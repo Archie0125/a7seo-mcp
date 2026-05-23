@@ -25,5 +25,13 @@
   "dataforseo": {
     "login": "",
     "password": ""
+  },
+
+  "_comment_platforms": "Optional: per-project analytics platforms. GA4/GSC/Clarity use their own MCP servers via the consumer project's .mcp.json — only Bing Webmaster lives here because no first-party MCP package exists. Env vars BING_WMT_API_KEY + BING_WMT_SITE_URL override this block.",
+  "platforms": {
+    "bingWmt": {
+      "siteUrl": "",
+      "apiKey": ""
+    }
   }
 }

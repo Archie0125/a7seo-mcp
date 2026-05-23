@@ -8,6 +8,7 @@ import { generateBrief, generateArticle, optimizeContent } from './modules/conte
 import { createMarkdownAdapter } from './modules/publisher/adapters/markdown-files.js';
 import { createBlogPostsTsAdapter } from './modules/publisher/adapters/blogposts-ts.js';
 import { ok, fail } from './modules/keywords/providers/base.js';
+import { createBingWmtProvider } from './modules/platforms/bing-wmt.js';
 
 export function registerAllTools(
   server: McpServer,
@@ -17,6 +18,46 @@ export function registerAllTools(
   registerKeywordTools(server, config, db);
   registerContentTools(server, config, db);
   registerPublisherTools(server, config, db);
+  registerPlatformTools(server, config);
+}
+
+function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
+  // Bing Webmaster Tools — no first-party MCP server exists, so a7seo-mcp
+  // ships one. GA4/GSC/Clarity continue to be served by their dedicated
+  // MCP packages registered in the consuming project's .mcp.json.
+  server.tool(
+    'bing_wmt_fetch',
+    'Fetch Bing Webmaster Tools metrics (pages crawled, crawl errors, impressions, clicks, avg position, top queries, top pages) for the current project. Requires platforms.bingWmt.apiKey and platforms.bingWmt.siteUrl in seo-engine.config.json or BING_WMT_API_KEY + BING_WMT_SITE_URL env vars.',
+    {
+      dateFrom: z
+        .string()
+        .describe('Start date (ISO YYYY-MM-DD). Bing keeps ~6 months of history.'),
+      dateTo: z.string().describe('End date (ISO YYYY-MM-DD), inclusive.'),
+    },
+    async ({ dateFrom, dateTo }) => {
+      if (!config.platforms?.bingWmt) {
+        const res = fail(
+          'BING_WMT_NOT_CONFIGURED',
+          'Bing Webmaster Tools credentials missing',
+          'Set platforms.bingWmt.apiKey + platforms.bingWmt.siteUrl in seo-engine.config.json, or env BING_WMT_API_KEY + BING_WMT_SITE_URL. Generate the API key at https://www.bing.com/webmasters → Settings → API access.'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+      try {
+        const provider = createBingWmtProvider(config.platforms.bingWmt);
+        const report = await provider.fetch({ startDate: dateFrom, endDate: dateTo });
+        const res = ok(report);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'BING_WMT_FETCH_FAILED',
+          (err as Error).message,
+          'Verify the apikey is valid and the siteUrl exactly matches the verified property URL in Bing Webmaster Tools (trailing slash matters).'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
 }
 
 function registerKeywordTools(
