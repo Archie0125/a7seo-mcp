@@ -2,7 +2,7 @@
 import { loadConfig, detectProviders } from './config.js';
 import { getDb, closeDb } from './db/client.js';
 import { discoverKeywords } from './modules/keywords/discovery.js';
-import { generateConfig } from './init.js';
+import { generateConfig, generatePlatformsScaffold } from './init.js';
 import { startServer, startAutopilot } from './agent/server.js';
 import { resolve } from 'path';
 import { createInterface } from 'readline';
@@ -152,16 +152,24 @@ async function runInit() {
     outputPath,
   });
 
-  if (created) {
-    console.log(`\nConfig written to: ${outputPath}`);
-    console.log('\nNext steps:');
-    console.log('  1. Set ANTHROPIC_API_KEY env var (for content generation)');
-    console.log('  2. Optional: Set GOOGLE_ADS_* or DATAFORSEO_* env vars');
-    console.log('  3. Add a7seo to .claude/mcp.json (see README)');
-    console.log('  4. Run: a7seo doctor');
-  } else {
-    console.log(`\nConfig already exists at ${outputPath}. Use --force to overwrite.`);
-  }
+  const scaffold = generatePlatformsScaffold(process.cwd());
+
+  console.log('');
+  if (created) console.log(`  ✓ seo-engine.config.json written`);
+  else console.log(`  • seo-engine.config.json already exists (skipped)`);
+  if (scaffold.mcp) console.log(`  ✓ .mcp.json written (4-platform MCP servers)`);
+  else console.log(`  • .mcp.json already exists (skipped)`);
+  if (scaffold.envExample) console.log(`  ✓ .env.platforms.example written`);
+  else console.log(`  • .env.platforms.example already exists (skipped)`);
+
+  console.log('\nNext steps:');
+  console.log('  1. Add .mcp.json + .env + .env.local to your .gitignore');
+  console.log('  2. Copy .env.platforms.example → .env and fill in real values');
+  console.log('     (GA4 propertyId, Clarity token, Bing WMT key, etc.)');
+  console.log('  3. Set ANTHROPIC_API_KEY env var (for content generation)');
+  console.log('  4. Run: a7seo doctor');
+  console.log('\nCredential walk-through: see PLATFORMS_SETUP.md in any');
+  console.log('existing a7seo-mcp project (e.g., topclass) for a 5-step checklist.');
 }
 
 async function main() {
