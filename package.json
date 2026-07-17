@@ -1,6 +1,6 @@
 {
   "name": "a7seo-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Automated SEO + GEO MCP server for Claude Code — keyword research, content generation, publishing, plus cross-platform analytics (Bing Webmaster) and SEO health check.",
   "type": "module",
   "main": "dist/index.js",

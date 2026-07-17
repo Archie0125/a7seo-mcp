@@ -4,6 +4,7 @@ import { getDb, closeDb } from './db/client.js';
 import { discoverKeywords } from './modules/keywords/discovery.js';
 import { generateConfig, generatePlatformsScaffold } from './init.js';
 import { startServer, startAutopilot } from './agent/server.js';
+import { runPortfolioHealth, formatPortfolioTable } from './modules/platforms/portfolio.js';
 import { resolve } from 'path';
 import { createInterface } from 'readline';
 
@@ -20,6 +21,9 @@ Usage:
   a7seo discover <keywords>         Discover keyword opportunities
   a7seo serve                       Start HTTP agent server
   a7seo serve --port 8080           Start on custom port
+  a7seo portfolio [registryPath] [--all]
+                                    Cross-site SEO/GEO health across all live registry sites
+                                    (--all also checks sites not yet marked live)
 
 Options:
   --project <id>                    Project ID (default: from config)
@@ -196,6 +200,13 @@ async function main() {
       const portIdx = args.indexOf('--port');
       const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : undefined;
       startServer(port);
+      break;
+    }
+    case 'portfolio': {
+      const includeNonLive = args.includes('--all');
+      const registryPath = args.slice(1).find((a) => !a.startsWith('--'));
+      const report = await runPortfolioHealth(registryPath, { includeNonLive });
+      console.log(formatPortfolioTable(report));
       break;
     }
     case 'autopilot': {

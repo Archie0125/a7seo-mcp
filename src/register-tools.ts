@@ -10,6 +10,7 @@ import { createBlogPostsTsAdapter } from './modules/publisher/adapters/blogposts
 import { ok, fail } from './modules/keywords/providers/base.js';
 import { createBingWmtProvider } from './modules/platforms/bing-wmt.js';
 import { runSeoHealthCheck } from './modules/platforms/health-check.js';
+import { runPortfolioHealth } from './modules/platforms/portfolio.js';
 
 export function registerAllTools(
   server: McpServer,
@@ -94,6 +95,37 @@ function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
           'BING_WMT_FETCH_FAILED',
           (err as Error).message,
           'Verify the apikey is valid and the siteUrl exactly matches the verified property URL in Bing Webmaster Tools (trailing slash matters).'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
+
+  // Portfolio-wide SEO/GEO health — reads the a7-sites registry (sites.json)
+  // and runs seo_health_check across EVERY site at once. "一次看所有網址".
+  server.tool(
+    'portfolio_health',
+    'Run the cross-stack SEO+GEO health check across ALL live sites in the a7-sites registry (registry/sites.json) at once and return a combined report. No credentials required — pure HTTP. Use this to see every site\'s health in one call. Sites with status !== "live" are reported as skipped (not errors) unless includeNonLive is set. Registry path resolves from the registryPath arg, else A7_REGISTRY_PATH env, else the default a7-sites path.',
+    {
+      registryPath: z
+        .string()
+        .optional()
+        .describe('Path to a7-sites registry/sites.json. Defaults to A7_REGISTRY_PATH env or the known a7-sites path.'),
+      includeNonLive: z
+        .boolean()
+        .optional()
+        .describe('Also check sites whose registry status is not "live" (e.g. still building, domain not pointed yet). Default false — these are skipped to avoid constant noise.'),
+    },
+    async ({ registryPath, includeNonLive }) => {
+      try {
+        const report = await runPortfolioHealth(registryPath, { includeNonLive });
+        const res = ok(report);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'PORTFOLIO_HEALTH_FAILED',
+          (err as Error).message,
+          'Verify registry/sites.json exists and is valid JSON. Pass registryPath or set A7_REGISTRY_PATH.'
         );
         return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
       }
