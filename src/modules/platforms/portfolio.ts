@@ -8,6 +8,34 @@
 import { readFileSync } from 'node:fs';
 import { runSeoHealthCheck, type HealthCheckResult } from './health-check.js';
 
+/**
+ * sitemap 分片數的基準。minShards 是**下限**不是等號——資料長大分片變多是常態，
+ * 分片變少才是訊號（index 少列一片 = 那幾萬頁靜默地不再被索引，而每一片都還是回
+ * 200，逐片驗證看不出來）。null = 該站還沒上線、沒量過。
+ */
+export interface RegistrySitemap {
+  minShards: number;
+  measuredOn?: string;
+  note?: string;
+}
+
+/**
+ * 資料源的更新頻率（事實）。「幾天算過期」是調校過的判斷值，住在
+ * a7-sites 的 registry/freshness.json，不在這裡——兩邊靠 metric 對齊。
+ */
+export interface RegistryDataSource {
+  metric: string;
+  cadence: string;
+  cadenceDays?: number | null;
+}
+
+/** 跨站姊妹連結：硬編碼指向別站的 URL，壞了沒人會發現。 */
+export interface RegistryCrossSiteLink {
+  to: string;
+  url: string;
+  where?: string;
+}
+
 export interface RegistrySite {
   id: string;
   name: string;
@@ -15,6 +43,12 @@ export interface RegistrySite {
   domain?: string;
   status?: string;
   analytics?: Record<string, string>;
+  /** 已知的 sitemap 分片下限。null = 未上線／未量測 → 不做分片數檢查。 */
+  sitemap?: RegistrySitemap | null;
+  dataSources?: RegistryDataSource[];
+  crossSiteLinks?: RegistryCrossSiteLink[];
+  /** 已知待辦（如 car 的 bing=pending）。純記錄，不影響檢查。 */
+  backlog?: string[];
 }
 
 export interface PortfolioSiteReport {
@@ -98,7 +132,11 @@ export async function runPortfolioHealth(
       }
 
       try {
-        const health = await runSeoHealthCheck(s.origin);
+        // registry 的 minShards 讓分片檢查有基準可比。沒有基準時它只驗得了
+        // 「每片都 200 且有 URL」——分片整片消失它是看不出來的。
+        const health = await runSeoHealthCheck(s.origin, {
+          expectedMinShards: s.sitemap?.minShards,
+        });
         return { ...base, health };
       } catch (err) {
         return { ...base, health: null, error: (err as Error).message };

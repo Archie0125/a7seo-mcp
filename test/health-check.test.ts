@@ -314,3 +314,129 @@ describe('runPortfolioHealth — non-live sites', () => {
     assert.equal(report.sites.find((s) => s.id === 'laoren')!.skipped, undefined);
   });
 });
+
+describe('checkSitemap — 分片數下限（registry sitemap.minShards）', () => {
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  /**
+   * 這組測試守的是「靜默失敗」：分片整片從 index 消失時，**剩下的每一片都還是
+   * 回 200 且有 URL**，所以逐片驗證全綠。只有拿 registry 的基準去比才看得出來。
+   */
+  it('分片數少於基準 → 紅燈（即使每一片都健康）', async () => {
+    const o = 'https://shrunk.test';
+    mockFetch({
+      ...baseRoutes(o),
+      [`${o}/sitemap.xml`]: { body: sitemapIndex([`${o}/sitemaps/a.xml`, `${o}/sitemaps/b.xml`]) },
+      [`${o}/sitemaps/a.xml`]: { body: urlset(8000) },
+      [`${o}/sitemaps/b.xml`]: { body: urlset(8000) },
+    });
+
+    const res = await runSeoHealthCheck(o, { expectedMinShards: 5 });
+    const f = sitemapFinding(res.findings);
+
+    assert.equal(f.level, 'red');
+    assert.match(f.detail, /3 shard\(s\) went missing/);
+    // 關鍵：每片都健康，舊的逐片檢查完全看不出問題
+    assert.equal(res.sitemap?.shards.every((s) => s.ok), true);
+  });
+
+  it('分片數多於基準 → 綠燈（資料長大是常態，不是故障）', async () => {
+    const o = 'https://grown.test';
+    mockFetch({
+      ...baseRoutes(o),
+      [`${o}/sitemap.xml`]: { body: sitemapIndex([`${o}/sitemaps/a.xml`, `${o}/sitemaps/b.xml`, `${o}/sitemaps/c.xml`]) },
+      [`${o}/sitemaps/a.xml`]: { body: urlset(10) },
+      [`${o}/sitemaps/b.xml`]: { body: urlset(10) },
+      [`${o}/sitemaps/c.xml`]: { body: urlset(10) },
+    });
+
+    const res = await runSeoHealthCheck(o, { expectedMinShards: 2 });
+    const f = sitemapFinding(res.findings);
+
+    assert.equal(f.level, 'green');
+    assert.match(f.detail, /shard baseline ≥2/);
+  });
+
+  it('分片數等於基準 → 綠燈', async () => {
+    const o = 'https://exact.test';
+    mockFetch({
+      ...baseRoutes(o),
+      [`${o}/sitemap.xml`]: { body: sitemapIndex([`${o}/sitemaps/a.xml`, `${o}/sitemaps/b.xml`]) },
+      [`${o}/sitemaps/a.xml`]: { body: urlset(10) },
+      [`${o}/sitemaps/b.xml`]: { body: urlset(10) },
+    });
+
+    const res = await runSeoHealthCheck(o, { expectedMinShards: 2 });
+    assert.equal(sitemapFinding(res.findings).level, 'green');
+  });
+
+  it('沒給基準 → 不做分片數檢查，且報表明講「沒有基準」（不假裝有在看）', async () => {
+    const o = 'https://nobaseline.test';
+    mockFetch({
+      ...baseRoutes(o),
+      [`${o}/sitemap.xml`]: { body: sitemapIndex([`${o}/sitemaps/a.xml`]) },
+      [`${o}/sitemaps/a.xml`]: { body: urlset(10) },
+    });
+
+    const res = await runSeoHealthCheck(o);
+    const f = sitemapFinding(res.findings);
+
+    assert.equal(f.level, 'green');
+    assert.match(f.detail, /no shard baseline in registry/);
+  });
+});
+
+describe('runPortfolioHealth — 把 registry 的 sitemap.minShards 接到 health check', () => {
+  let dir: string;
+  let registryPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'a7seo-minshards-'));
+    registryPath = join(dir, 'sites.json');
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('registry 的 minShards 真的有被套用（少一片 → 該站紅燈）', async () => {
+    const o = 'https://reg.test';
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        sites: [
+          { id: 'reg', name: 'Reg', origin: o, status: 'live', sitemap: { minShards: 4 } },
+        ],
+      })
+    );
+    mockFetch({
+      ...baseRoutes(o),
+      [`${o}/sitemap.xml`]: { body: sitemapIndex([`${o}/sitemaps/a.xml`, `${o}/sitemaps/b.xml`]) },
+      [`${o}/sitemaps/a.xml`]: { body: urlset(10) },
+      [`${o}/sitemaps/b.xml`]: { body: urlset(10) },
+    });
+
+    const report = await runPortfolioHealth(registryPath);
+    const site = report.sites.find((s) => s.id === 'reg')!;
+
+    assert.equal(report.totals.red >= 1, true);
+    assert.match(site.health!.findings.find((f) => f.label === 'Sitemap')!.detail, /2 shard\(s\) went missing/);
+  });
+
+  it('sitemap: null（未上線的站）不會炸，也不做分片數檢查', async () => {
+    const o = 'https://nullmap.test';
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        sites: [{ id: 'nm', name: 'NM', origin: o, status: 'live', sitemap: null }],
+      })
+    );
+    mockFetch({ ...baseRoutes(o), [`${o}/sitemap.xml`]: { body: urlset(20) } });
+
+    const report = await runPortfolioHealth(registryPath);
+    assert.equal(report.sites[0].health !== null, true);
+  });
+});

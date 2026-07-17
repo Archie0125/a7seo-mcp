@@ -55,6 +55,12 @@ export interface HealthCheckResult {
 export interface HealthCheckOptions {
   /** 最多驗幾片子 sitemap。超過就改抽樣（前 N + 隨機 N），並標記 partialCoverage。 */
   maxSitemapShards?: number;
+  /**
+   * 預期的最少分片數（來自 a7-sites registry/sites.json 的 sitemap.minShards）。
+   * 給了就檢查「分片數有沒有少」。**下限語意**：多了不報（資料長大是常態），
+   * 少了報紅（分片靜默消失）。沒給就跳過這項檢查——沒有基準時不假裝有。
+   */
+  expectedMinShards?: number;
 }
 
 interface CheckContext {
@@ -62,6 +68,7 @@ interface CheckContext {
   homepageHtml: string | null;
   findings: HealthFinding[];
   maxSitemapShards: number;
+  expectedMinShards?: number;
   sitemap?: SitemapDetail;
 }
 
@@ -289,8 +296,31 @@ async function checkSitemap(ctx: CheckContext): Promise<void> {
     return;
   }
 
+  // 分片數少了 = 靜默失敗。每一片都回 200、都有 URL，逐片驗證全綠——但 index 少列
+  // 一片，那一片的幾萬頁就從此不進索引，沒有任何人會發現。所以要拿基準比。
+  // 只在「變少」時報紅：資料長大→分片變多是常態，設等號會每次長大都誤報。
+  if (ctx.expectedMinShards !== undefined && childLocs.length < ctx.expectedMinShards) {
+    red(
+      ctx,
+      'Sitemap',
+      `sitemap index has ${childLocs.length} shard(s) but registry expects at least ${ctx.expectedMinShards} — ` +
+        `${ctx.expectedMinShards - childLocs.length} shard(s) went missing. Every remaining shard still returns 200, ` +
+        `so per-shard checks cannot see this. Either the ETL wrote a wrong shard count, or the data shrank ` +
+        `(if the shrink is intentional, lower sitemap.minShards in a7-sites registry/sites.json).`
+    );
+    return;
+  }
+
   const level = partial ? yellow : green;
-  level(ctx, 'Sitemap', `sitemap index: ${childLocs.length} shard(s), ${totalUrls} URLs total — ${coverage}`);
+  const baseline =
+    ctx.expectedMinShards !== undefined
+      ? `; shard baseline ≥${ctx.expectedMinShards} (registry)`
+      : '; no shard baseline in registry — a vanished shard would go unnoticed';
+  level(
+    ctx,
+    'Sitemap',
+    `sitemap index: ${childLocs.length} shard(s), ${totalUrls} URLs total — ${coverage}${baseline}`
+  );
 }
 
 /**
@@ -481,6 +511,7 @@ export async function runSeoHealthCheck(
     homepageHtml: await fetchText(normalisedUrl),
     findings: [],
     maxSitemapShards: options.maxSitemapShards ?? SITEMAP_SHARD_CAP,
+    expectedMinShards: options.expectedMinShards,
   };
 
   await checkSitemap(ctx);
