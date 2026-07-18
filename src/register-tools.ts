@@ -10,7 +10,7 @@ import { createBlogPostsTsAdapter } from './modules/publisher/adapters/blogposts
 import { ok, fail } from './modules/keywords/providers/base.js';
 import { createBingWmtProvider } from './modules/platforms/bing-wmt.js';
 import { runSeoHealthCheck } from './modules/platforms/health-check.js';
-import { runPortfolioHealth } from './modules/platforms/portfolio.js';
+import { runPortfolioHealth, lookupMinShards } from './modules/platforms/portfolio.js';
 
 export function registerAllTools(
   server: McpServer,
@@ -31,14 +31,18 @@ function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
   // Runs entirely over plain HTTP against the configured site URL.
   server.tool(
     'seo_health_check',
-    'Cross-stack SEO + GEO health check for the current project. Probes sitemap.xml, robots.txt (AI crawler allow rules), llms.txt presence, tracking pixel render (GA4/Clarity/Meta), canonical link, og:image, and <html lang> attribute. Returns green/yellow/red findings. No platform credentials required — works against any site URL.',
+    'Cross-stack SEO + GEO health check for the current project. Probes sitemap.xml, robots.txt (AI crawler allow rules), llms.txt presence, tracking pixel render (GA4/Clarity/Meta), canonical link, og:image, and <html lang> attribute. Returns green/yellow/red findings. No platform credentials required — works against any site URL. If the target site is in the a7-sites registry, its sitemap.minShards is used as a baseline so a vanished shard (silent de-indexing) is caught.',
     {
       siteUrl: z
         .string()
         .optional()
         .describe('Site URL to probe. Defaults to https://<config.domain>/ if omitted.'),
+      registryPath: z
+        .string()
+        .optional()
+        .describe('Path to a7-sites registry/sites.json, used to look up this site\'s sitemap.minShards baseline. Defaults to A7_REGISTRY_PATH env or the known a7-sites path. Ignored if the site is not in the registry.'),
     },
-    async ({ siteUrl }) => {
+    async ({ siteUrl, registryPath }) => {
       const target =
         siteUrl ||
         (config.domain
@@ -53,7 +57,10 @@ function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
         return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
       }
       try {
-        const report = await runSeoHealthCheck(target);
+        // 從 registry 接分片下限——portfolio 早就這樣餵了，單站路徑之前漏接。
+        // best-effort：不在 registry 或讀不到就是 undefined，健檢照跑（少分片下限那項）。
+        const expectedMinShards = lookupMinShards(target, registryPath);
+        const report = await runSeoHealthCheck(target, { expectedMinShards });
         const res = ok(report);
         return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
       } catch (err) {

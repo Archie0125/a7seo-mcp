@@ -98,6 +98,47 @@ export function loadRegistry(registryPath: string): RegistrySite[] {
   return raw.sites ?? [];
 }
 
+/** 一個 URL 的比對用 host（小寫、去掉 www.）。解析不了回 null。 */
+function hostKey(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).host.toLowerCase().replace(/^www\./, '');
+  } catch {
+    // registry 的 domain 欄位可能只寫裸網域（沒有 scheme）——補上再解析一次。
+    try {
+      return new URL(`https://${url}`).host.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * 依 siteUrl 從 registry 找對應站的 sitemap.minShards，餵給單站 seo_health_check
+ * 當分片下限——portfolio.ts 早就這樣餵了，單站路徑之前漏接，分片「整片消失」在單站
+ * 檢查裡看不出來（見 checkSitemap 的 expectedMinShards 註解）。
+ *
+ * 刻意 best-effort：registry 讀不到、URL 不在 registry、或該站沒量過 minShards 時
+ * 回 undefined——health check 照跑，只是少了分片下限那項（報表會明講「no shard
+ * baseline in registry」）。registry 缺席不該讓一個純 HTTP 的健檢整個掛掉。
+ *
+ * registry 路徑走 resolveRegistryPath（明確參數 > A7_REGISTRY_PATH > 預設），與
+ * portfolio 同一個機制，不另外抄一份路徑邏輯以免漂。
+ */
+export function lookupMinShards(siteUrl: string, registryPathArg?: string): number | undefined {
+  const target = hostKey(siteUrl);
+  if (!target) return undefined;
+  let sites: RegistrySite[];
+  try {
+    sites = loadRegistry(resolveRegistryPath(registryPathArg));
+  } catch {
+    return undefined;
+  }
+  const match = sites.find((s) => hostKey(s.origin) === target || hostKey(s.domain) === target);
+  const min = match?.sitemap?.minShards;
+  return typeof min === 'number' ? min : undefined;
+}
+
 /**
  * 對 registry 的站跑 health check。
  *
