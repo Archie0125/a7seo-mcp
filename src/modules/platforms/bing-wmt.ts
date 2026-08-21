@@ -15,72 +15,30 @@
  *   https://www.bing.com/webmasters/ → Settings → API access.
  *
  * Response format: { "d": <payload> } OData envelope.
+ *
+ * The HTTP + parsing primitives live in bing.ts (shared with bing-report.ts,
+ * which is the registry-driven cross-site version). Two bugs that used to live
+ * here are fixed there, once:
+ *   - dates arrive as `/Date(1779260400000-0700)/`; the old regex demanded
+ *     `/Date(<digits>)/` and silently dropped every row with a timezone offset;
+ *   - `GetPageStats` rows are still keyed by `Query`, not `Page`, so reading
+ *     `row.Page` produced a table of `undefined` without ever erroring.
  */
 
+import {
+  bingGet,
+  inRange,
+  pageOf,
+  type BingCrawlRow,
+  type BingStatRow,
+  type BingTrafficRow,
+} from './bing.js';
 import type { PlatformDateRange, PlatformProvider, PlatformReport } from './types.js';
 import { PlatformConfigError } from './types.js';
 
 export interface BingWmtConfig {
   siteUrl: string;
   apiKey: string;
-}
-
-const API_BASE = 'https://ssl.bing.com/webmaster/api.svc/json';
-
-interface BingResponse<T> {
-  d: T;
-}
-
-interface CrawlStatsRow {
-  CrawlErrors: number;
-  CrawledPages: number;
-  Date: string; // "/Date(1234567890000)/"
-  HttpStatus2xx: number;
-  HttpStatus3xx: number;
-  HttpStatus4xx: number;
-  HttpStatus5xx: number;
-  InLinks: number;
-}
-
-interface QueryStatsRow {
-  AvgClickPosition: number;
-  AvgImpressionPosition: number;
-  Clicks: number;
-  Impressions: number;
-  Query: string;
-}
-
-interface PageStatsRow {
-  AvgClickPosition: number;
-  AvgImpressionPosition: number;
-  Clicks: number;
-  Impressions: number;
-  Page: string;
-}
-
-interface RankAndTrafficRow {
-  Date: string;
-  Clicks: number;
-  Impressions: number;
-  Position: number;
-}
-
-function parseBingDate(s: string): string {
-  // "/Date(1234567890000)/" → "YYYY-MM-DD"
-  const match = /\/Date\((\d+)\)\//.exec(s);
-  if (!match || !match[1]) return s;
-  return new Date(Number(match[1])).toISOString().slice(0, 10);
-}
-
-async function bingGet<T>(method: string, params: Record<string, string>): Promise<T> {
-  const qs = new URLSearchParams(params).toString();
-  const url = `${API_BASE}/${method}?${qs}`;
-  const res = await fetch(url, { method: 'GET' });
-  if (!res.ok) {
-    throw new Error(`Bing WMT ${method} HTTP ${res.status}: ${await res.text()}`);
-  }
-  const body = (await res.json()) as BingResponse<T>;
-  return body.d;
 }
 
 export function createBingWmtProvider(config: BingWmtConfig): PlatformProvider {
@@ -104,16 +62,13 @@ export function createBingWmtProvider(config: BingWmtConfig): PlatformProvider {
       const params = { siteUrl: config.siteUrl, apikey: config.apiKey };
 
       const [crawlStats, queryStats, pageStats, trafficStats] = await Promise.all([
-        bingGet<CrawlStatsRow[]>('GetCrawlStats', params),
-        bingGet<QueryStatsRow[]>('GetQueryStats', params),
-        bingGet<PageStatsRow[]>('GetPageStats', params),
-        bingGet<RankAndTrafficRow[]>('GetRankAndTrafficStats', params),
+        bingGet<BingCrawlRow[]>('GetCrawlStats', params),
+        bingGet<BingStatRow[]>('GetQueryStats', params),
+        bingGet<BingStatRow[]>('GetPageStats', params),
+        bingGet<BingTrafficRow[]>('GetRankAndTrafficStats', params),
       ]);
 
-      const dateInRange = (s: string): boolean => {
-        const d = parseBingDate(s);
-        return d >= range.startDate && d <= range.endDate;
-      };
+      const dateInRange = (d: string): boolean => inRange(d, range.startDate, range.endDate);
 
       const inRangeCrawl = crawlStats.filter((r) => dateInRange(r.Date));
       const inRangeTraffic = trafficStats.filter((r) => dateInRange(r.Date));
@@ -123,11 +78,11 @@ export function createBingWmtProvider(config: BingWmtConfig): PlatformProvider {
       const metrics = [
         {
           metric: 'pagesCrawled',
-          value: sum(inRangeCrawl.map((r) => r.CrawledPages)),
+          value: sum(inRangeCrawl.map((r) => r.CrawledPages ?? 0)),
         },
         {
           metric: 'crawlErrors',
-          value: sum(inRangeCrawl.map((r) => r.CrawlErrors)),
+          value: sum(inRangeCrawl.map((r) => r.CrawlErrors ?? 0)),
         },
         {
           metric: 'impressions',
@@ -143,7 +98,7 @@ export function createBingWmtProvider(config: BingWmtConfig): PlatformProvider {
             inRangeTraffic.length > 0
               ? Number(
                   (
-                    inRangeTraffic.reduce((a, r) => a + r.Position, 0) /
+                    inRangeTraffic.reduce((a, r) => a + (r.Position ?? 0), 0) /
                     inRangeTraffic.length
                   ).toFixed(2)
                 )
@@ -155,13 +110,14 @@ export function createBingWmtProvider(config: BingWmtConfig): PlatformProvider {
         [...arr].sort((a, b) => b.Clicks - a.Clicks).slice(0, n);
 
       const topQueries = sortDesc(queryStats, 20).map((r) => ({
-        query: r.Query,
+        query: r.Query ?? '(no query)',
         clicks: r.Clicks,
         impressions: r.Impressions,
       }));
 
+      // pageOf, not r.Page — GetPageStats reuses the Query row schema (see bing.ts).
       const topPages = sortDesc(pageStats, 20).map((r) => ({
-        url: r.Page,
+        url: pageOf(r).url,
         clicks: r.Clicks,
         impressions: r.Impressions,
       }));

@@ -12,6 +12,9 @@ import { createBingWmtProvider } from './modules/platforms/bing-wmt.js';
 import { runSeoHealthCheck } from './modules/platforms/health-check.js';
 import { runPortfolioHealth, lookupMinShards } from './modules/platforms/portfolio.js';
 import { runGscReport } from './modules/platforms/gsc-report.js';
+import { runGa4WeeklyReport } from './modules/platforms/ga4-report.js';
+import { runBingReport } from './modules/platforms/bing-report.js';
+import { runWeeklyReport } from './modules/platforms/weekly.js';
 
 export function registerAllTools(
   server: McpServer,
@@ -184,6 +187,107 @@ function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
           'PORTFOLIO_GSC_FAILED',
           (err as Error).message,
           'Missing credentials is NOT an error here — it comes back inside the report. This code means the registry itself could not be read. Verify registry/sites.json exists and is valid JSON.'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
+
+  // AI 搜尋量測層。GSC 那層問「傳統 SERP 上有沒有人搜」，這層問「AI 在引用我們的
+  // 哪一種頁」—— 五站的 robots.txt 早就對 AI 搜尋 bot 開 Allow，但從來沒人量過。
+  server.tool(
+    'portfolio_ga4',
+    'GA4 weekly report across every live site in the a7-sites registry, focused on AI-SEARCH REFERRALS: sessions/users/engagement grouped by AI engine (ChatGPT, Perplexity, Copilot, Gemini, Claude, You.com, Phind) and — the point of it — which PAGE TYPES that AI traffic lands on, using the same registry pageTypes patterns as portfolio_gsc so the two are comparable. Uses the same Google service account as GSC (A7_GSC_CREDENTIALS / A7_GSC_CREDENTIALS_JSON) but needs the Analytics Data + Admin APIs enabled and the service account added as a Viewer on each GA4 property. Without credentials it returns setup guidance instead of failing (there is no credential-free half here — AI referral data only exists inside GA4). Sources whose shape does not look like real traffic (GA4 reserved-param leakage, localhost, self-referral) are listed separately and excluded from the AI numbers.',
+    {
+      registryPath: z
+        .string()
+        .optional()
+        .describe('Path to a7-sites registry/sites.json. Defaults to A7_REGISTRY_PATH env or the known a7-sites path.'),
+      days: z.number().optional().describe('Window length in days. Default 28.'),
+      lagDays: z.number().optional().describe('How many days back the window ends. Default 1.'),
+      onlySites: z.array(z.string()).optional().describe('Limit to these registry site ids.'),
+    },
+    async ({ registryPath, days, lagDays, onlySites }) => {
+      try {
+        const report = await runGa4WeeklyReport(registryPath, { days, lagDays, onlySites });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(ok(report), null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'PORTFOLIO_GA4_FAILED',
+          (err as Error).message,
+          'Missing credentials is NOT an error here — it comes back inside the report. This code means the registry itself could not be read.'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
+
+  // Bing 是同一個問題的第二個引擎。刻意跟 portfolio_gsc 共用 registry 的 pageTypes：
+  // 兩張表擺在一起才看得出「Google 不要的頁型 Bing 要不要」。
+  server.tool(
+    'portfolio_bing',
+    'Bing Webmaster Tools report across every live site in the a7-sites registry: clicks/impressions/CTR/position plus a page-type breakdown using the SAME registry pageTypes patterns as portfolio_gsc, so Google and Bing can be compared per page type. Needs A7_BING_API_KEY (one key covers every site in the account; generate at bing.com/webmasters → Settings → API access). Bing has no index-count API — the crawl numbers are crawl volume, not index size. Without a key it returns setup guidance instead of failing.',
+    {
+      registryPath: z
+        .string()
+        .optional()
+        .describe('Path to a7-sites registry/sites.json. Defaults to A7_REGISTRY_PATH env or the known a7-sites path.'),
+      days: z.number().optional().describe('Window length in days. Default 28.'),
+      onlySites: z.array(z.string()).optional().describe('Limit to these registry site ids.'),
+    },
+    async ({ registryPath, days, onlySites }) => {
+      try {
+        const report = await runBingReport(registryPath, { days, onlySites });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(ok(report), null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'PORTFOLIO_BING_FAILED',
+          (err as Error).message,
+          'Missing API key is NOT an error here — it comes back inside the report. This code means the registry itself could not be read.'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
+
+  // 四層匯流。存在的理由是 2026-08 真的發生過「總表全綠、實際已掛五週」——
+  // 分開看每一層就會重演同一個故障模式。
+  server.tool(
+    'portfolio_weekly',
+    'The whole weekly picture in ONE report: portfolio HTTP health + GSC page types + Bing + GA4 AI referrals (and, if you pass d1File, the a7-sites D1 freshness sentinel output). Returns a title line plus the full markdown. Use this instead of calling the individual portfolio_* tools when you want the weekly read-out — the layers exist precisely because each one hides a class of failure the others cannot see. Any layer that fails is written into the report rather than dropped. Clarity is deliberately NOT included (quota is 10 calls/day per site, 3-day window — it does not line up with the 28-day window).',
+    {
+      registryPath: z.string().optional().describe('Path to a7-sites registry/sites.json.'),
+      days: z.number().optional().describe('Window length in days. Default 28.'),
+      inspectPerType: z
+        .number()
+        .optional()
+        .describe('GSC urlInspection samples per page type. Default 0 (off). Quota 2,000/day per property.'),
+      onlySites: z.array(z.string()).optional().describe('Limit to these registry site ids.'),
+      d1File: z
+        .string()
+        .optional()
+        .describe("Path to a file holding a7-sites' check-freshness.mjs output, to splice in as the D1 layer."),
+      skip: z
+        .array(z.enum(['http', 'gsc', 'bing', 'ga4']))
+        .optional()
+        .describe('Layers to skip. Skipped layers are labelled as skipped, not as missing data.'),
+    },
+    async ({ registryPath, days, inspectPerType, onlySites, d1File, skip }) => {
+      try {
+        const report = await runWeeklyReport(registryPath, {
+          days,
+          inspectPerType,
+          onlySites,
+          d1File,
+          skip,
+        });
+        const res = ok({ title: report.title, markdown: report.markdown });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'PORTFOLIO_WEEKLY_FAILED',
+          (err as Error).message,
+          'Individual layer failures are written into the report, not thrown. This code means the registry itself could not be read.'
         );
         return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
       }

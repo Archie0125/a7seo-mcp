@@ -72,6 +72,10 @@ a7seo doctor                          # Check all dependencies
 a7seo discover "SEO優化,AI搜尋"       # Discover keywords
 a7seo portfolio                       # Cross-site health (HTTP layer, no credentials)
 a7seo gsc                             # Cross-site GSC weekly report (see below)
+a7seo ga4                             # AI-search referrals + which page types they land on
+a7seo bing                            # Bing Webmaster, same page-type breakdown as gsc
+a7seo weekly                          # All four layers in ONE report
+a7seo clarity --only food             # On-demand friction (quota: 10 calls/day per site)
 a7seo --help                          # Show all commands
 ```
 
@@ -83,7 +87,20 @@ and answer different questions:
 | Command | Layer | Question | Credentials |
 |---|---|---|---|
 | `a7seo portfolio` | HTTP | Are the pages alive, tracked, and is any sitemap shard missing? | none |
-| `a7seo gsc` | Search | Is anyone searching, and **which page types** get the impressions? | Google service account |
+| `a7seo gsc` | Search · Google | Is anyone searching, and **which page types** get the impressions? | Google service account |
+| `a7seo bing` | Search · Bing | Does anyone search outside Google — same page types? | Bing WMT API key |
+| `a7seo ga4` | AI search | Which page types is **AI** citing us for? | same Google service account |
+| `a7seo weekly` | all of the above | The weekly read-out, in one document | whatever is configured |
+
+`a7seo weekly` is the one to run. The layers exist because each hides a class of
+failure the others cannot see: in 2026-08 `portfolio` reported five green sites while
+food's `goods-weekly` had been broken for five weeks — that was a D1-layer fact, and
+nobody had the two layers side by side. The D1 layer itself lives in `a7-sites`
+(it needs wrangler + a Cloudflare token); pass its output with `--d1 <file>`.
+There is exactly one composer, used by both CI and local runs.
+
+Clarity is deliberately **not** in the weekly report: its quota is 10 calls/day per
+site with a 3-day maximum window, which does not line up with the 28-day one.
 
 `a7seo gsc` prints two tables: a five-site overview, and a **page-type breakdown**
 that pairs each URL pattern's sitemap page count with its impressions — so a page
@@ -102,7 +119,29 @@ a7seo gsc                          # five sites, last 28 days
 a7seo gsc --only xiuchequ          # one site
 a7seo gsc --inspect 10             # also sample index status, 10 URLs per page type
 a7seo gsc --json                   # raw JSON
+
+a7seo ga4                          # AI-search referrals per site / engine / page type
+a7seo bing                         # Bing clicks, impressions, CTR + page types
+a7seo weekly --d1 layer-d1.txt --out report.md   # one document, stdout is just the title
+a7seo weekly --skip bing,ga4       # re-run only some layers
 ```
+
+### AI search, in one paragraph
+
+Every one of the five sites already serves `Content-Signal: search=yes, ai-input=yes,
+ai-train=no` and allows OAI-SearchBot / PerplexityBot / Claude-SearchBot while
+blocking training-only crawlers. That groundwork was laid months ago and **nobody
+had ever measured what it returns.** `a7seo ga4` groups `chatgpt.com`,
+`perplexity.ai`, `claude.ai`, `copilot.microsoft.com`, `gemini.google.com`,
+`you.com` and `phind.com` into their own bucket (GA4's default channel grouping
+buries them all in "Referral") and — the part that changes decisions — breaks their
+landing pages down by the same registry `pageTypes` used by `a7seo gsc`. Twelve
+sessions from ChatGPT prove nothing; twelve sessions that all land on `/cal` and
+`/additive` tell you AI wants structured fact pages, not the shop directory.
+
+Sources whose *shape* is not a real traffic source (GA4 reserved-param leakage such
+as `package_card`, localhost, self-referral) are listed separately and excluded from
+the AI numbers instead of quietly becoming a channel.
 
 ## Available Tools (v0.1)
 

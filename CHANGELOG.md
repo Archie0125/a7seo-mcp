@@ -2,6 +2,81 @@
 
 All notable changes to a7seo-mcp.
 
+## [0.5.0] — 2026-08-21
+
+### Added — 量測從「只有 GSC」擴充到「Google + Bing + AI 搜尋」，四層出在同一份週報
+
+本輪 GSC 實測攤開了一件事：**這五個站在傳統 SERP 上的天花板很低。** 五站 28 天合計
+68,350 曝光、1,408 點擊、CTR 2.1%；car 平均排序 6.6（很前面）卻只有 1.5% CTR ——
+因為搜店名／公司名／建案名的人要的是**那個實體本身**（Google 商家、地圖、電話），
+目錄站只能撿殘渣。但同一批內容對 **AI 搜尋**的價值結構完全不同：AI 回答需要引用
+結構化的事實資料源，而這五站正好就是台灣政府開放資料的結構化呈現。
+
+基礎建設早就鋪好了 —— 五站 robots.txt 全部 `Content-Signal: search=yes,
+ai-input=yes, ai-train=no`，對 OAI-SearchBot / PerplexityBot / Claude-SearchBot 開
+Allow、對純訓練 bot Disallow。**問題是鋪好了但沒有任何人在量它帶來多少流量。**
+
+- **`a7seo ga4` + `portfolio_ga4`** — AI 搜尋 referral。三張表：五站 AI 佔比、
+  AI 來源 × 站、**AI 落點頁型**。第三張才是會改變決策的那張：總量小的時候
+  「ChatGPT 帶了 12 個 session」什麼都證明不了，但「那 12 個全部落在 `/cal` 與
+  `/additive`」會告訴我們 AI 要的是結構化事實頁，而不是我們印了幾萬頁的店家目錄。
+  落點頁用**跟 GSC 表二同一組** registry `pageTypes` 分群，兩張表才對得起來。
+- **`a7seo bing` + `portfolio_bing`** — Bing Webmaster，同一組頁型 pattern。
+  Bing 的 CTR 通常明顯高於 Google，因為 Copilot 的答案版位就長在那個 SERP 上。
+- **`a7seo clarity`** — dead click / rage click 依頁型分群。**刻意不進週報**：
+  配額是每站每天 10 次呼叫、單次最多 3 天，視窗跟另外三層的 28 天對不起來，
+  硬塞只會每週把配額燒光還拿到無法對照的資料。
+- **`a7seo weekly` + `portfolio_weekly`** — 四層匯流成一份 markdown。存在的理由是
+  2026-08 真的發生過「總表全綠、實際已掛五週」（portfolio 說五站全綠的同時 food 的
+  `goods-weekly` 連掛 5 週）。D1 那層留在 a7-sites，用 `--d1 <檔案>` 併進來。
+  **合成器只有一個**，CI 與本機跑同一支 —— 兩份實作的下場是報表在兩邊長得不一樣。
+
+### Changed
+
+- `google-auth.ts`：service account 的讀檔與 JWT 簽章從 `gsc.ts` 抽出來共用
+  （GSC 與 GA4 是同一顆金鑰、不同 scope）。`gsc.ts` 原樣再匯出 `Gsc*` 那組名字，
+  docs / 測試 / 呼叫端零改動。新增 `A7_GOOGLE_CREDENTIALS(_JSON)` 作為別名，
+  `A7_GSC_CREDENTIALS(_JSON)` 繼續有效（已經寫進 docs 與 GitHub secret，改名換不到好處）。
+- `report-format.ts`：表格排版抽出來。四層要出在同一份報表裡，各抄一份 `padRight`
+  的下場是欄寬規則慢慢漂、同一份報表裡的表格對不齊。
+
+### Fixed — `bing-wmt.ts` 兩個「不會報錯、只會空掉」的 bug
+
+- **日期 regex**：Bing 回的是 `/Date(1779260400000-0700)/`，舊 regex 要求毫秒後
+  緊接右括號，帶時區位移的列**全部失配** → 每一列都「不在區間內」→ 統計靜靜地變成 0。
+- **`GetPageStats` 的列仍然用 `Query` 當 key**（Page endpoint 沿用 Query 的列
+  schema）。照文件寫 `row.Page` 拿到 `undefined`，頁面表整欄變成 `undefined`
+  而不會拋任何錯。現在兩個欄位都認，並把**實際用到的欄位名**寫進報表 —— 哪天
+  Microsoft 真的修好 schema，我們會看到欄位名變了，而不是某天資料靜靜地全空。
+
+### 已知地雷（實戰紀錄，程式已擋，測試守著）
+
+- GA4 的 `source`/`medium`/`campaign` 是**保留參數名**：自訂事件送同名參數會覆蓋
+  `sessionSource`，於是報表冒出 `package_card`、`127.0.0.1:8000` 這種假來源。
+  形狀不像來源的值被抓出來單獨列表、不計入 AI。
+- GA4 沒有 `conversions` 這個 metric（要用 `keyEvents`）；`assertValidMetrics`
+  擋在送出前並直接給正解。
+- GA4 `dimensionFilter` 舊範例結構會回 `Unknown field for Filter: fieldName` ——
+  **刻意不用**，撈回來在本機切。
+- GA4 落點頁維度改過名（`landingPage` ↔ `landingPagePlusQueryString`），猜錯的代價
+  是整張落點表消失 → 先試現行名、被 400 就換，並在報表標明用了哪個。
+- Bing **沒有**索引數 API（跟 GSC 一樣的天花板）；報表給的是爬取量並標明。
+
+### 誠實記著的限制
+
+- **本機沒有任何一組憑證**（GCP service account 是用戶待辦、Bing 金鑰未產、Clarity
+  token 未產），所以 GA4 / Bing / Clarity 三層**沒有對線上 API 實跑過**。可驗的都驗了：
+  型別、135 條測試（新增 43 條，含 mock 掉網路的完整路徑）、無憑證時的指引輸出、
+  以及 `a7seo weekly` 對五站真實 sitemap 實跑（209,056 URL）。
+- Clarity 的回應欄位名在文件與實務之間有出入，解析刻意寬容且會標「認不出來」而不是
+  回 0。第一次拿到 token 請先跑 `--json` 看原始回應。
+
+### Docs
+
+- `docs/gsc-setup.md` 擴成四平台：GA4（要多開 Data API + Admin API、要加進「資源存取
+  管理」、measurement id → property id 怎麼對照與怎麼貼回 registry）、Bing（金鑰哪裡拿、
+  siteUrl 尾斜線算數）、Clarity（配額策略）、四層週報。
+
 ## [0.4.0] — 2026-08-21
 
 ### Added — GSC 量測層（第三層，把「哪個頁型值得留」變成可回答的問題）

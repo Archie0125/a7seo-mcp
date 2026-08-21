@@ -30,6 +30,9 @@ import {
   type RegistryPageType,
   type RegistrySite,
 } from './portfolio.js';
+// 表格排版搬去 report-format.ts：四層報表現在要出在同一份週報，各抄一份 padRight
+// 的下場是欄寬規則慢慢漂、同一份報表裡的表格對不齊。
+import { formatTable as table, num, pct, pos } from './report-format.js';
 
 const LIVE_STATUS = 'live';
 const SITEMAP_CONCURRENCY = 4;
@@ -511,49 +514,6 @@ export async function runGscReport(
 }
 
 // ---------------------------------------------------------------- 輸出
-
-/** 全形字算 2 欄寬，否則中文表格必歪。 */
-function displayWidth(s: string): number {
-  let w = 0;
-  for (const ch of s) {
-    const c = ch.codePointAt(0) ?? 0;
-    w +=
-      (c >= 0x1100 && c <= 0x115f) ||
-      (c >= 0x2e80 && c <= 0xa4cf) ||
-      (c >= 0xac00 && c <= 0xd7a3) ||
-      (c >= 0xf900 && c <= 0xfaff) ||
-      (c >= 0xfe30 && c <= 0xfe6f) ||
-      (c >= 0xff00 && c <= 0xff60) ||
-      (c >= 0xffe0 && c <= 0xffe6)
-        ? 2
-        : 1;
-  }
-  return w;
-}
-
-function padRight(s: string, width: number): string {
-  return s + ' '.repeat(Math.max(0, width - displayWidth(s)));
-}
-
-function padLeft(s: string, width: number): string {
-  return ' '.repeat(Math.max(0, width - displayWidth(s))) + s;
-}
-
-function table(headers: string[], rows: string[][], alignRight: boolean[]): string[] {
-  const widths = headers.map((h, i) =>
-    Math.max(displayWidth(h), ...rows.map((r) => displayWidth(r[i] ?? '')))
-  );
-  const line = (cells: string[]): string =>
-    cells
-      .map((c, i) => (alignRight[i] ? padLeft(c, widths[i] as number) : padRight(c, widths[i] as number)))
-      .join('  ')
-      .trimEnd();
-  return [line(headers), widths.map((w) => '-'.repeat(w)).join('  '), ...rows.map(line)];
-}
-
-const num = (n: number): string => n.toLocaleString('en-US');
-const pct = (n: number): string => `${(n * 100).toFixed(1)}%`;
-const pos = (n: number): string => (n > 0 ? n.toFixed(1) : '—');
 
 export function formatGscReport(report: GscReport): string {
   const out: string[] = [];

@@ -1,7 +1,7 @@
 {
   "name": "a7seo-mcp",
-  "version": "0.4.0",
-  "description": "Automated SEO + GEO MCP server for Claude Code — keyword research, content generation, publishing, plus cross-platform analytics (Bing Webmaster) and SEO health check.",
+  "version": "0.5.0",
+  "description": "Automated SEO + GEO MCP server for Claude Code — keyword research, content generation, publishing, plus cross-site measurement across GSC, GA4 (AI-search referrals), Bing Webmaster and Clarity, rolled into one weekly report.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
