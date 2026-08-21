@@ -473,8 +473,25 @@ export function formatGa4Report(report: Ga4Report): string {
     report.sites.some((s) => s.ai?.byEngine.some((x) => x.engine === e && x.sessions > 0))
   );
   if (engineCols.length === 0) {
-    out.push('  這 28 天五站沒有任何一個 AI 來源帶進工作階段。');
-    out.push('  這是「量過了、真的是 0」，不是「還沒量」——分母在表一，追蹤碼在 portfolio 那層驗過。');
+    // 「沒有 AI 流量」與「根本沒量到」長得一模一樣，但意思相反。
+    // 只有在每一站都真的查成功（無 error、對得到 property）時，才敢說這個 0 是真的 0；
+    // 否則講成「真的是 0」就是本站群一直在抓的那種假綠燈。
+    const measured = report.sites.filter((s) => !s.error && s.propertyId);
+    const unmeasured = report.sites.filter((s) => s.error || !s.propertyId);
+    if (measured.length === 0) {
+      out.push('  ⚠ 沒有任何一站量到——不是「AI 沒帶流量」，是這一層根本沒問到資料。');
+      out.push('  原因見表一每一站的 ✖；修好之前，這張表不代表任何事。');
+    } else {
+      out.push(
+        `  這 28 天${measured.length === report.sites.length ? '五站' : `量到的 ${measured.length} 站`}沒有任何一個 AI 來源帶進工作階段。`
+      );
+      out.push('  這是「量過了、真的是 0」，不是「還沒量」——分母在表一，追蹤碼在 portfolio 那層驗過。');
+      if (unmeasured.length > 0) {
+        out.push(
+          `  ⚠ 另有 ${unmeasured.length} 站沒量到（${unmeasured.map((s) => s.name).join('、')}），它們不在上面那句話的範圍內。`
+        );
+      }
+    }
   } else {
     const t2 = report.sites.map((s) => [
       s.name,
