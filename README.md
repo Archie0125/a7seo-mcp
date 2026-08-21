@@ -70,7 +70,38 @@ seo_keywords_gaps()
 ```bash
 a7seo doctor                          # Check all dependencies
 a7seo discover "SEO優化,AI搜尋"       # Discover keywords
+a7seo portfolio                       # Cross-site health (HTTP layer, no credentials)
+a7seo gsc                             # Cross-site GSC weekly report (see below)
 a7seo --help                          # Show all commands
+```
+
+## Portfolio measurement (a7-sites registry)
+
+Two commands read the same single source of truth — `a7-sites/registry/sites.json` —
+and answer different questions:
+
+| Command | Layer | Question | Credentials |
+|---|---|---|---|
+| `a7seo portfolio` | HTTP | Are the pages alive, tracked, and is any sitemap shard missing? | none |
+| `a7seo gsc` | Search | Is anyone searching, and **which page types** get the impressions? | Google service account |
+
+`a7seo gsc` prints two tables: a five-site overview, and a **page-type breakdown**
+that pairs each URL pattern's sitemap page count with its impressions — so a page
+type with thousands of pages and near-zero impression coverage becomes visible.
+Patterns are declared per site in the registry (`pageTypes`), never hardcoded.
+
+Without credentials it still prints the sitemap half of that table plus setup
+guidance, and exits 0 — it never fails a scheduled run just because a key is missing.
+
+Setup (about 15 minutes, once): **[docs/gsc-setup.md](docs/gsc-setup.md)**.
+The step people miss is adding the service account email as a user on every GSC
+property; that doc calls it out.
+
+```bash
+a7seo gsc                          # five sites, last 28 days
+a7seo gsc --only xiuchequ          # one site
+a7seo gsc --inspect 10             # also sample index status, 10 URLs per page type
+a7seo gsc --json                   # raw JSON
 ```
 
 ## Available Tools (v0.1)

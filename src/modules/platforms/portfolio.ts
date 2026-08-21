@@ -36,6 +36,20 @@ export interface RegistryCrossSiteLink {
   where?: string;
 }
 
+/**
+ * URL 頁型（給 GSC 週報的頁型分群表用）。定義住 registry 而不是寫死在程式裡，
+ * 因為它跟 minShards 一樣是「這個站長什麼樣子」的事實，改站型的人就該順手改它。
+ *
+ * match = 分段前綴：`/s` 命中 `/s` 與 `/s/**`，不會命中 `/sup`。陣列順序＝優先序，
+ * 第一個命中者勝。沒命中的頁會落進報表自動補的「（未分類）」桶——那一桶變大就是
+ * 這份宣告過時了。
+ */
+export interface RegistryPageType {
+  id: string;
+  match: string;
+  label: string;
+}
+
 export interface RegistrySite {
   id: string;
   name: string;
@@ -47,6 +61,8 @@ export interface RegistrySite {
   sitemap?: RegistrySitemap | null;
   dataSources?: RegistryDataSource[];
   crossSiteLinks?: RegistryCrossSiteLink[];
+  /** GSC 週報的頁型分群定義。缺席＝那個站的表二只會有一列「（未分類）」。 */
+  pageTypes?: RegistryPageType[];
   /** 已知待辦（如 car 的 bing=pending）。純記錄，不影響檢查。 */
   backlog?: string[];
 }

@@ -5,6 +5,7 @@ import { discoverKeywords } from './modules/keywords/discovery.js';
 import { generateConfig, generatePlatformsScaffold } from './init.js';
 import { startServer, startAutopilot } from './agent/server.js';
 import { runPortfolioHealth, formatPortfolioTable } from './modules/platforms/portfolio.js';
+import { runGscReport, formatGscReport } from './modules/platforms/gsc-report.js';
 import { resolve } from 'path';
 import { createInterface } from 'readline';
 
@@ -24,6 +25,17 @@ Usage:
   a7seo portfolio [registryPath] [--all]
                                     Cross-site SEO/GEO health across all live registry sites
                                     (--all also checks sites not yet marked live)
+  a7seo gsc [registryPath] [options]
+                                    GSC weekly report: per-site totals + page-type breakdown.
+                                    Page-type patterns come from registry pageTypes.
+                                    Runs without credentials too (sitemap half of the table).
+                                      --days N        window length, default 28
+                                      --lag N         days back for the end date, default 3
+                                      --no-sitemap    skip the sitemap crawl (drops page counts)
+                                      --inspect N     sample N URLs per page type for index status
+                                      --only a,b      limit to these registry ids
+                                      --credentials P service account JSON path (else A7_GSC_CREDENTIALS)
+                                      --json          raw JSON instead of the tables
 
 Options:
   --project <id>                    Project ID (default: from config)
@@ -207,6 +219,45 @@ async function main() {
       const registryPath = args.slice(1).find((a) => !a.startsWith('--'));
       const report = await runPortfolioHealth(registryPath, { includeNonLive });
       console.log(formatPortfolioTable(report));
+      break;
+    }
+    case 'gsc': {
+      // 讓 `--inspect`（不帶值）與 `--inspect 8` 都成立：下一個 token 是另一個 flag 就當沒給值。
+      const flag = (name: string): string | undefined => {
+        const i = args.indexOf(`--${name}`);
+        if (i === -1) return undefined;
+        const next = args[i + 1];
+        return next === undefined || next.startsWith('--') ? undefined : next;
+      };
+      const int = (name: string, fallback: number): number => {
+        const raw = flag(name);
+        if (raw === undefined) return fallback;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0) {
+          console.error(`Error: --${name} needs a non-negative number (got "${raw}")`);
+          process.exit(1);
+        }
+        return n;
+      };
+      // 第一個不是 flag、也不是某個 flag 的值的位置參數 = registryPath。
+      const flagValues = new Set(
+        ['days', 'lag', 'inspect', 'only', 'credentials']
+          .map((n) => flag(n))
+          .filter((v): v is string => v !== undefined)
+      );
+      const registryPath = args
+        .slice(1)
+        .find((a) => !a.startsWith('--') && !flagValues.has(a));
+
+      const report = await runGscReport(registryPath, {
+        days: int('days', 28),
+        lagDays: int('lag', 3),
+        withSitemap: !args.includes('--no-sitemap'),
+        inspectPerType: args.includes('--inspect') ? int('inspect', 5) : 0,
+        credentialsPath: flag('credentials'),
+        onlySites: flag('only')?.split(',').map((s) => s.trim()).filter(Boolean),
+      });
+      console.log(args.includes('--json') ? JSON.stringify(report, null, 2) : formatGscReport(report));
       break;
     }
     case 'autopilot': {

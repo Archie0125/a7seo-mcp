@@ -11,6 +11,7 @@ import { ok, fail } from './modules/keywords/providers/base.js';
 import { createBingWmtProvider } from './modules/platforms/bing-wmt.js';
 import { runSeoHealthCheck } from './modules/platforms/health-check.js';
 import { runPortfolioHealth, lookupMinShards } from './modules/platforms/portfolio.js';
+import { runGscReport } from './modules/platforms/gsc-report.js';
 
 export function registerAllTools(
   server: McpServer,
@@ -133,6 +134,56 @@ function registerPlatformTools(server: McpServer, config: ProjectConfig): void {
           'PORTFOLIO_HEALTH_FAILED',
           (err as Error).message,
           'Verify registry/sites.json exists and is valid JSON. Pass registryPath or set A7_REGISTRY_PATH.'
+        );
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      }
+    }
+  );
+
+  // GSC 量測層。與 portfolio_health 讀同一份 registry，但問的是不同的層：
+  // portfolio 檢 HTTP（頁面活著嗎），這支檢搜尋表現（有人搜嗎、哪個頁型有人搜）。
+  server.tool(
+    'portfolio_gsc',
+    'Google Search Console weekly report across every live site in the a7-sites registry: per-site clicks/impressions/CTR/position, plus a PAGE-TYPE breakdown that pairs each URL pattern\'s sitemap page count with its impressions — the table that shows which page types have many pages but zero demand. Page-type patterns are declared in the registry (pageTypes), not hardcoded. Needs a Google service account (A7_GSC_CREDENTIALS / A7_GSC_CREDENTIALS_JSON) added as a user on each GSC property; without credentials it still returns the sitemap half of the breakdown plus setup guidance instead of failing. Note: the GSC API cannot return the UI\'s index-coverage totals — set inspectPerType to sample per-page-type index status via urlInspection instead.',
+    {
+      registryPath: z
+        .string()
+        .optional()
+        .describe('Path to a7-sites registry/sites.json. Defaults to A7_REGISTRY_PATH env or the known a7-sites path.'),
+      days: z.number().optional().describe('Window length in days. Default 28.'),
+      lagDays: z
+        .number()
+        .optional()
+        .describe('How many days back the window ends, to stay inside GSC final (non-fresh) data. Default 3.'),
+      withSitemap: z
+        .boolean()
+        .optional()
+        .describe('Crawl each site\'s sitemap to get per-page-type page counts. Default true — without it the "many pages, zero impressions" signal is unavailable.'),
+      inspectPerType: z
+        .number()
+        .optional()
+        .describe('Sample N URLs per page type through urlInspection for index status. Default 0 (off). Quota is 2,000/day per property.'),
+      onlySites: z
+        .array(z.string())
+        .optional()
+        .describe('Limit to these registry site ids (e.g. ["xiuchequ"]).'),
+    },
+    async ({ registryPath, days, lagDays, withSitemap, inspectPerType, onlySites }) => {
+      try {
+        const report = await runGscReport(registryPath, {
+          days,
+          lagDays,
+          withSitemap,
+          inspectPerType,
+          onlySites,
+        });
+        const res = ok(report);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
+      } catch (err) {
+        const res = fail(
+          'PORTFOLIO_GSC_FAILED',
+          (err as Error).message,
+          'Missing credentials is NOT an error here — it comes back inside the report. This code means the registry itself could not be read. Verify registry/sites.json exists and is valid JSON.'
         );
         return { content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }] };
       }
